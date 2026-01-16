@@ -204,3 +204,6 @@ __marimo__/
 
 # Features
 features/vias_respiratorias/*
+
+# Temp Dagster stuff
+.tmp_dagster_home_*

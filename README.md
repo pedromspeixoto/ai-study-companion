@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/study-companion.png" alt="Study Companion" width="400"/>
+  <img src="assets/study-companion.png" alt="Study Companion" width="500"/>
 </div>
 
 ## Table of Contents
