@@ -1,5 +1,7 @@
+# AI Study Companion
+
 <div align="center">
-  <img src="assets/study-companion.png" alt="Study Companion" width="500"/>
+  <img src="assets/small-demo.gif" alt="Study Companion Demo" width="1024"/>
 </div>
 
 ## Table of Contents
