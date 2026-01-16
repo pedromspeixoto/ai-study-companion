@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ai_rag
+      POSTGRES_USER: ai_rag
+      POSTGRES_PASSWORD: ai_rag
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_rag -d ai_rag"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - ai-stack
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - redis-data:/data
+    networks:
+      - ai-stack
+
+  pgweb:
+    image: sosedoff/pgweb:latest
+    ports:
+      - "8081:8081"
+    environment:
+      PGWEB_DATABASE_URL: postgres://ai_rag:ai_rag@postgres:5432/ai_rag?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ai-stack
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  ai-stack:
