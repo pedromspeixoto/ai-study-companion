@@ -2,7 +2,7 @@ import "server-only";
 
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { eq, cosineDistance, sql, desc, gt, and } from "drizzle-orm";
+import { eq, cosineDistance, sql, desc, asc, gt, and } from "drizzle-orm";
 import { ChatSDKError } from "@/lib/errors";
 import { embeddings } from "@/lib/db/embeddings/schema";
 import { resources } from "@/lib/db/resources/schema";
@@ -137,7 +137,10 @@ export async function getAllContentByResourceId(resourceId: string): Promise<str
       })
       .from(embeddings)
       .where(eq(embeddings.resourceId, resourceId))
-      .orderBy(embeddings.id);
+      .orderBy(
+        sql`COALESCE(${embeddings.chunkIndex}, 0)`,
+        asc(embeddings.id)
+      );
     return chunks.map(c => c.content);
   } catch (_error) {
     throw new ChatSDKError("bad_request:database", "Failed to query embeddings");

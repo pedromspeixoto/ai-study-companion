@@ -551,66 +551,70 @@ def save_embeddings(
     Save embeddings to the database.
     
     Stores vector embeddings in the PostgreSQL embeddings table with pgvector.
-    Handles both insert and update operations.
+    Each chunk from a PDF gets its own embedding record.
+    Deletes existing embeddings for each resource_id before inserting new ones
+    to ensure idempotency and prevent duplicates on re-runs.
     """
     
     conn = postgres.get_connection()
     saved_count = 0
-    updated_count = 0
     error_count = 0
     
     try:
         with conn.cursor() as cur:
+            # Group embeddings by resource_id to delete all chunks for a resource at once
+            resource_ids = set(embedding_data["resource_id"] for embedding_data in generate_embeddings)
+            
+            # Delete existing embeddings for all resources being processed
+            for resource_id in resource_ids:
+                try:
+                    cur.execute(
+                        "DELETE FROM embeddings WHERE resource_id = %s",
+                        (resource_id,),
+                    )
+                    deleted_count = cur.rowcount
+                    if deleted_count > 0:
+                        context.log.debug(
+                            f"Deleted {deleted_count} existing embedding(s) for resource: {resource_id[:8]}..."
+                        )
+                except Exception as e:
+                    context.log.warning(
+                        f"Error deleting existing embeddings for resource {resource_id[:8]}...: {str(e)}"
+                    )
+            
+            # Insert all new embeddings
             for embedding_data in generate_embeddings:
                 try:
                     embedding_id = str(uuid.uuid4())
-                    
-                    # Check if embedding already exists for this resource
-                    cur.execute(
-                        "SELECT id FROM embeddings WHERE resource_id = %s",
-                        (embedding_data["resource_id"],),
-                    )
-                    existing = cur.fetchone()
                     
                     # Convert embedding list to string format for pgvector: '[1,2,3]'
                     embedding_str = (
                         "[" + ",".join(str(x) for x in embedding_data["embedding"]) + "]"
                     )
                     
-                    if existing:
-                        # Update existing embedding
-                        cur.execute(
-                            """
-                            UPDATE embeddings 
-                            SET content = %s, embedding = %s::vector
-                            WHERE resource_id = %s
-                            """,
-                            (
-                                embedding_data["content"],
-                                embedding_str,
-                                embedding_data["resource_id"],
-                            ),
-                        )
-                        updated_count += 1
-                    else:
-                        # Insert new embedding
-                        cur.execute(
-                            """
-                            INSERT INTO embeddings (id, resource_id, content, embedding)
-                            VALUES (%s, %s, %s, %s::vector)
-                            """,
-                            (
-                                embedding_id,
-                                embedding_data["resource_id"],
-                                embedding_data["content"],
-                                embedding_str,
-                            ),
-                        )
-                        saved_count += 1
+                    # Get chunk_index (defaults to 0 if not set, for single-chunk PDFs)
+                    chunk_index = embedding_data.get("chunk_index")
+                    if chunk_index is None:
+                        chunk_index = 0
+                    
+                    # Insert new embedding with chunk_index for proper ordering
+                    cur.execute(
+                        """
+                        INSERT INTO embeddings (id, resource_id, content, embedding, chunk_index)
+                        VALUES (%s, %s, %s, %s::vector, %s)
+                        """,
+                        (
+                            embedding_id,
+                            embedding_data["resource_id"],
+                            embedding_data["content"],
+                            embedding_str,
+                            chunk_index,
+                        ),
+                    )
+                    saved_count += 1
                     
                     context.log.debug(
-                        f"{'Updated' if existing else 'Saved'} embedding for "
-                        f"resource: {embedding_data['resource_id'][:8]}..."
+                        f"Saved embedding chunk {chunk_index} for resource: {embedding_data['resource_id'][:8]}..."
                     )
                 except Exception as e:
                     error_count += 1
@@ -629,7 +633,7 @@ def save_embeddings(
         conn.close()
     
     # If all embeddings failed to save, raise an error
-    if error_count > 0 and (saved_count + updated_count) == 0:
+    if error_count > 0 and saved_count == 0:
         error_msg = (
             f"Failed to save all {len(generate_embeddings)} embeddings. "
             f"All {error_count} attempts resulted in errors."
@@ -641,13 +645,12 @@ def save_embeddings(
     if error_count > 0:
         context.log.warning(
             f"Failed to save {error_count} out of {len(generate_embeddings)} embeddings. "
-            f"Successfully saved {saved_count} and updated {updated_count}."
+            f"Successfully saved {saved_count}."
         )
     
     return MaterializeResult(
         metadata={
             "saved": MetadataValue.int(saved_count),
-            "updated": MetadataValue.int(updated_count),
             "errors": MetadataValue.int(error_count),
             "total": MetadataValue.int(len(generate_embeddings)),
             "timestamp": MetadataValue.timestamp(datetime.now().timestamp()),

@@ -56,17 +56,24 @@ class PostgresResource(ConfigurableResource):
                         id VARCHAR(191) PRIMARY KEY NOT NULL,
                         resource_id VARCHAR(191),
                         content TEXT NOT NULL,
-                        embedding vector(1536) NOT NULL
+                        embedding vector(1536) NOT NULL,
+                        chunk_index INTEGER
                     );
                     """
                 )
 
-                # Create index on resource_id for faster lookups
+                # Create indexes for faster lookups
                 context.log.debug("Creating indexes...")
                 cur.execute(
                     """
                     CREATE INDEX IF NOT EXISTS idx_embeddings_resource_id 
                     ON embeddings(resource_id);
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_embeddings_resource_chunk 
+                    ON embeddings(resource_id, chunk_index);
                     """
                 )
 
