@@ -9,7 +9,8 @@
 - [Architecture](#-architecture)
 - [Key Components](#-key-components)
 - [Prerequisites](#-prerequisites)
-- [Quick Start](#-quick-start)
+- [Docker Deployment (Recommended)](#-docker-deployment-recommended)
+- [Local Development Setup](#-local-development-setup)
 - [Configuration](#-configuration)
 - [Database Schema](#-database-schema)
 - [How It Works](#-how-it-works)
@@ -70,6 +71,11 @@ graph TB
 
 ## 📋 Prerequisites
 
+### For Docker Deployment (Recommended)
+- **Docker** and **Docker Compose** (only system requirement)
+- **OpenAI API Key** (for embeddings and chat models)
+
+### For Local Development
 - **Python 3.10+** (for Dagster pipeline)
 - **Node.js 18+** (for Next.js app)
 - **PostgreSQL** with pgvector extension
@@ -77,7 +83,133 @@ graph TB
 - **pnpm** (package manager for frontend)
 - **uv** (recommended) or **pip** (for Python dependencies)
 
-## 🚀 Quick Start
+## 🐳 Docker Deployment (Recommended)
+
+The entire application stack can be deployed using **only Docker** - no need to install Python, Node.js, PostgreSQL, or any other dependencies on your host machine.
+
+### What Gets Deployed
+
+Docker Compose will start all services:
+- **PostgreSQL** with pgvector extension (port 5432)
+- **Redis** for resumable streams (port 6379)
+- **Dagster** data pipeline with web UI (port 3001)
+- **Next.js** frontend application (port 1337)
+- **pgweb** database admin UI (port 8081)
+
+### Deployment Steps
+
+#### 1. Clone the Repository
+
+```bash
+git clone <repository-url>
+cd study-companion
+```
+
+#### 2. Configure Environment Variables
+
+Create a `.env` file in the **root directory** with your API keys:
+
+```bash
+# Required - Get from https://platform.openai.com/api-keys
+OPENAI_API_KEY=sk-your-openai-api-key-here
+
+# Optional - Only needed if using Claude models
+ANTHROPIC_API_KEY=sk-ant-your-key-here
+
+# Optional - Authentication secret (generates default if not provided)
+# Generate with: openssl rand -base64 32
+AUTH_SECRET=your-random-secret-here
+```
+
+You can use the provided example file as a template:
+```bash
+cp .env.example .env
+# Edit .env and add your API keys
+```
+
+#### 3. Start All Services
+
+```bash
+docker compose up -d
+```
+
+This will:
+- Build the Dagster and frontend Docker images
+- Start all containers in the background
+- Run database migrations automatically
+- Set up networking between services
+
+#### 4. Verify Deployment
+
+Check that all containers are running:
+```bash
+docker compose ps
+```
+
+You should see all services as "healthy" or "running".
+
+#### 5. Access the Applications
+
+- **Frontend**: http://localhost:1337
+- **Dagster UI**: http://localhost:3001
+- **pgweb (Database Admin)**: http://localhost:8081
+
+### Managing the Deployment
+
+**View logs:**
+```bash
+# All services
+docker compose logs -f
+
+# Specific service
+docker compose logs -f frontend
+docker compose logs -f dagster
+```
+
+**Restart services:**
+```bash
+# Restart all
+docker compose restart
+
+# Restart specific service
+docker compose restart frontend
+```
+
+**Stop services:**
+```bash
+docker compose down
+```
+
+**Stop and remove volumes (clean slate):**
+```bash
+docker compose down -v
+```
+
+**Rebuild after code changes:**
+```bash
+docker compose up -d --build
+```
+
+### Adding PDF Documents
+
+PDF files for processing should be placed in the `data/features/<folder_name>/` directory. The Dagster pipeline will automatically discover them.
+
+Example structure:
+```
+data/features/
+├── dagster-book/
+│   └── document.pdf
+├── sample/
+│   └── example.pdf
+└── your-folder/
+    └── your-document.pdf
+```
+
+After adding PDFs, materialize the Dagster assets via the Dagster UI at http://localhost:3001.
+
+## 🚀 Local Development Setup
+
+For active development with hot-reload and local debugging, you can run services locally instead of in Docker.
 
 ### 1. Clone and Navigate
 
@@ -88,10 +220,10 @@ cd study-companion
 
 ### 2. Database Setup
 
-Start PostgreSQL with pgvector using Docker Compose:
+Start only the database services using Docker Compose:
 
 ```bash
-docker compose up -d
+docker compose up -d postgres redis pgweb
 ```
 
 This starts:
@@ -147,6 +279,42 @@ Generate `AUTH_SECRET`:
 ```bash
 openssl rand -base64 32
 ```
+
+### 4. Install Dependencies
+
+#### For Dagster Pipeline
+
+```bash
+cd data
+uv pip install -e ".[dev]"  # or use pip if you don't have uv
+```
+
+#### For Next.js App
+
+```bash
+cd frontend
+pnpm install
+```
+
+### 5. Run Services Locally
+
+#### Start Dagster (in one terminal)
+
+```bash
+cd data
+dagster dev
+```
+
+Access Dagster UI at http://localhost:3000
+
+#### Start Next.js (in another terminal)
+
+```bash
+cd frontend
+pnpm dev
+```
+
+Access frontend at http://localhost:1337
 
 ## 🔧 Configuration
 
@@ -251,6 +419,22 @@ Stores vector embeddings:
 - **Database connection errors**: Ensure Docker containers are running (`docker compose ps`)
 - **Migration errors**: Run `pnpm db:migrate` to ensure schema is up to date
 - **Port conflicts**: Change the port in `package.json` scripts or `.env.local`
+
+### Docker Deployment Issues
+
+- **Build failures**: Ensure `.env` file exists in root directory with required keys
+- **Container not starting**: Check logs with `docker compose logs <service-name>`
+- **Port already in use**:
+  - Check for conflicting services: `docker compose ps` and `lsof -i :<port>`
+  - Modify ports in `docker-compose.yml` if needed
+- **Database connection refused**: Wait for health checks to complete (`docker compose ps` shows "healthy")
+- **Changes not reflecting**: Rebuild images with `docker compose up -d --build`
+- **Out of disk space**: Clean up Docker resources:
+  ```bash
+  docker system prune -a
+  docker volume prune
+  ```
+- **Permission errors on volumes**: Ensure the mounted directories (`data/features/`) have proper permissions
 
 ## 📚 Learn More
 

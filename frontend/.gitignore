@@ -43,5 +43,5 @@ yarn-error.log*
 /playwright/*
 .playwright-mcp/*
 
-# Storage
-storage/
+# Storage (only root-level storage directory, not lib/storage source code)
+/storage/
