@@ -6,12 +6,22 @@ type Entitlements = {
   availableChatModelIds: ChatModel["id"][];
 };
 
-export const entitlementsByUserType: Record<UserType, Entitlements> = {/*
+export const entitlementsByUserType: Record<UserType, Entitlements> = {
+  /*
    * For users with an account
    */
   regular: {
     maxMessagesPerDay: 100,
-    availableChatModelIds: ["chat-model", "chat-model-reasoning", "rag-model"],
+    availableChatModelIds: [
+      // OpenAI models
+      "openai-gpt-4o",
+      "openai-gpt-4o-mini",
+      "openai-gpt-4-turbo",
+      // Anthropic models
+      "anthropic-claude-sonnet",
+      "anthropic-claude-haiku",
+      "anthropic-claude-opus",
+    ],
   },
 
   /*

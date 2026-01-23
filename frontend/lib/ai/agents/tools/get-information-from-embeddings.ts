@@ -6,19 +6,25 @@ import { generateEmbedding } from "@/lib/ai/embeddings/generate";
 
 export const getInformationFromEmbeddings = tool({
   description:
-    `MANDATORY: Use this tool to search for information in uploaded documents before answering ANY question. 
-    This is the ONLY source of information you can use. 
-    Provide a user query and, optionally, a resource id to search for information from.
-    If a resource id is not provided, we will search for information from all embeddings.
-    
-    IMPORTANT: 
-    - If this tool returns results (non-empty array), you MUST use the content from those results to answer the user's question.
-    - Each result contains: content (the text to use), similarity (relevance score), and resourceName (source document).
-    - Use the content from the results to provide a comprehensive answer based on the documents.
-    - If this tool returns an empty array or no results, only then should you tell the user the information is not available in the documents.`,
+    `Search for information in uploaded documents by semantic similarity.
+
+    Use this tool when users ask questions about content in their documents.
+
+    Input:
+    - userQuery: The question or topic to search for (will be embedded and matched semantically)
+    - resourceId (optional): Limit search to a specific document ID
+
+    Output:
+    - Array of relevant content chunks, each containing:
+      * content: The text content from the document
+      * similarity: Relevance score (0-1, higher is more relevant)
+      * resourceName: Source document filename
+    - Empty array if no relevant information found
+
+    The tool returns the most semantically similar content chunks. Use all returned results to provide a comprehensive answer.`,
   inputSchema: z.object({
-    userQuery: z.string().describe("The user query to search for information from."),
-    resourceId: z.string().optional().nullable().describe("The resource id to search for information from. If not provided, we will search for information from all embeddings."),
+    userQuery: z.string().describe("The user's question or topic to search for in the documents."),
+    resourceId: z.string().optional().nullable().describe("Optional: The specific document ID to search within. If not provided, searches across all documents."),
   }),
   execute: async (input) => {
     try {

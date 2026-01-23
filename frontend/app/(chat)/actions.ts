@@ -3,7 +3,7 @@
 import { generateText, type UIMessage } from "ai";
 import { cookies } from "next/headers";
 import type { VisibilityType } from "@/components/visibility-selector";
-import { myProvider } from "@/lib/ai/providers";
+import { myProvider, getTitleModelId } from "@/lib/ai/providers";
 import {
   deleteMessagesByChatIdAfterTimestamp,
   getMessageById,
@@ -20,8 +20,10 @@ export async function generateTitleFromUserMessage({
 }: {
   message: UIMessage;
 }) {
+  const titleModelId = getTitleModelId();
+
   const { text: title } = await generateText({
-    model: myProvider.languageModel("title-model"),
+    model: myProvider.languageModel(titleModelId),
     system: `\n
     - you will generate a short title based on the first message a user begins a conversation with
     - ensure it is not more than 80 characters long

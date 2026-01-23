@@ -7,6 +7,7 @@ export function useScrollToBottom() {
   const containerRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const hasScrolledToBottomOnMount = useRef(false);
 
   const { data: scrollBehavior = false, mutate: setScrollBehavior } =
     useSWR<ScrollFlag>("messages:should-scroll", null, { fallbackData: false });
@@ -83,6 +84,23 @@ export function useScrollToBottom() {
       setScrollBehavior(false);
     }
   }, [scrollBehavior, setScrollBehavior]);
+
+  // Scroll to bottom on initial mount
+  useEffect(() => {
+    if (!hasScrolledToBottomOnMount.current && containerRef.current) {
+      const container = containerRef.current;
+      // Use requestAnimationFrame to ensure DOM is fully rendered
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          container.scrollTo({
+            top: container.scrollHeight,
+            behavior: "instant",
+          });
+          hasScrolledToBottomOnMount.current = true;
+        });
+      });
+    }
+  }, []);
 
   const scrollToBottom = useCallback(
     (currentScrollBehavior: ScrollBehavior = "smooth") => {

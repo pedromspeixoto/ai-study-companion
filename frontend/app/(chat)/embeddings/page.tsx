@@ -47,8 +47,14 @@ interface Resource {
   updatedAt: string;
 }
 
-interface GroupedResources {
-  [folder: string]: Resource[];
+interface GroupedResourcesResponse {
+  folders: Record<string, Resource[]>;
+  totalFolders: number;
+  totalResources: number;
+  currentPage: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
 }
 
 interface PaginatedResources {
@@ -76,12 +82,13 @@ const STATUS_ICONS = {
 
 export default function EmbeddingsPage() {
   const { data: session, status } = useSession();
-  const [groupedData, setGroupedData] = useState<GroupedResources | null>(null);
+  const [groupedData, setGroupedData] = useState<GroupedResourcesResponse | null>(null);
   const [paginatedData, setPaginatedData] = useState<PaginatedResources | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [deletingResource, setDeletingResource] = useState<string | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState<string | null>(null);
   const [previewResourceId, setPreviewResourceId] = useState<string | null>(null);
   const [previewContent, setPreviewContent] = useState<string | null>(null);
   const [previewFilename, setPreviewFilename] = useState<string | null>(null);
@@ -92,7 +99,7 @@ export default function EmbeddingsPage() {
   const fetchResources = useCallback(async (page = currentPage, search = searchQuery) => {
     try {
       setIsRefreshing(true);
-      
+
       if (search) {
         // When searching, use paginated view
         const data = await apiClient.get<PaginatedResources>(
@@ -101,16 +108,16 @@ export default function EmbeddingsPage() {
         setPaginatedData(data);
         setGroupedData(null);
       } else {
-        // When not searching, use grouped view
-        const data = await apiClient.get<GroupedResources>(
-          `/api/resources?grouped=true`
+        // When not searching, use grouped view with pagination
+        const data = await apiClient.get<GroupedResourcesResponse>(
+          `/api/resources?grouped=true&page=${page}&foldersPerPage=10&filesPerFolder=100`
         );
         setGroupedData(data);
         setPaginatedData(null);
         // Expand all folders by default
-        setExpandedFolders(new Set(Object.keys(data)));
+        setExpandedFolders(new Set(Object.keys(data.folders)));
       }
-      
+
       setCurrentPage(page);
     } catch (error) {
       if (error instanceof ChatSDKError) {
@@ -149,6 +156,26 @@ export default function EmbeddingsPage() {
       }
     } finally {
       setDeletingResource(null);
+    }
+  }, [fetchResources, currentPage, searchQuery]);
+
+  const deleteFolder = useCallback(async (folder: string) => {
+    try {
+      setDeletingFolder(folder);
+      const result = await apiClient.delete<{ success: boolean; deletedCount: number; folder: string }>(
+        `/api/resources?folder=${encodeURIComponent(folder)}`
+      );
+      toast.success(`Deleted ${result.deletedCount} resources from "${folder}"`);
+      await fetchResources(currentPage, searchQuery);
+    } catch (error) {
+      console.error("Delete folder error:", error);
+      if (error instanceof ChatSDKError) {
+        toast.error(error.message);
+      } else {
+        toast.error("Failed to delete folder");
+      }
+    } finally {
+      setDeletingFolder(null);
     }
   }, [fetchResources, currentPage, searchQuery]);
 
@@ -197,7 +224,7 @@ export default function EmbeddingsPage() {
       return paginatedData.total;
     }
     if (groupedData) {
-      return Object.values(groupedData).reduce((sum, files) => sum + files.length, 0);
+      return groupedData.totalResources;
     }
     return 0;
   }, [searchQuery, paginatedData, groupedData]);
@@ -329,7 +356,7 @@ export default function EmbeddingsPage() {
             />
           </div>
 
-          {(!groupedData && !paginatedData) || (searchQuery && paginatedData?.resources.length === 0) || (!searchQuery && groupedData && Object.keys(groupedData).length === 0) ? (
+          {(!groupedData && !paginatedData) || (searchQuery && paginatedData?.resources.length === 0) || (!searchQuery && groupedData && Object.keys(groupedData.folders).length === 0) ? (
             <div className="text-center py-6 text-muted-foreground">
               <FileTextIcon className="h-8 w-8 mx-auto mb-3 opacity-50" />
               <p className="text-sm font-medium">No resources found</p>
@@ -382,10 +409,10 @@ export default function EmbeddingsPage() {
             // Grouped by folder view
             <>
               <div className="text-sm text-muted-foreground mb-4">
-                {totalResources} {totalResources === 1 ? "resource" : "resources"} in {Object.keys(groupedData).length} {Object.keys(groupedData).length === 1 ? "folder" : "folders"}
+                {totalResources} {totalResources === 1 ? "resource" : "resources"} in {groupedData.totalFolders} {groupedData.totalFolders === 1 ? "folder" : "folders"}
               </div>
               <div className="space-y-2">
-                {Object.entries(groupedData)
+                {Object.entries(groupedData.folders)
                   .sort(([a], [b]) => a.localeCompare(b))
                   .map(([folder, files]) => {
                     const isExpanded = expandedFolders.has(folder);
@@ -395,22 +422,55 @@ export default function EmbeddingsPage() {
                         open={isExpanded}
                         onOpenChange={() => toggleFolder(folder)}
                       >
-                        <CollapsibleTrigger className="flex items-center gap-2 w-full p-3 border rounded-lg hover:bg-muted/50 transition-colors">
-                          {isExpanded ? (
-                            <ChevronDownIcon className="h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <ChevronRightIcon className="h-4 w-4 text-muted-foreground" />
-                          )}
-                          {isExpanded ? (
-                            <FolderOpenIcon className="h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <FolderIcon className="h-4 w-4 text-muted-foreground" />
-                          )}
-                          <span className="font-medium flex-1 text-left">{folder || "Other"}</span>
-                          <Badge variant="outline" className="text-xs">
-                            {files.length} {files.length === 1 ? "file" : "files"}
-                          </Badge>
-                        </CollapsibleTrigger>
+                        <div className="flex items-center gap-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors">
+                          <CollapsibleTrigger className="flex items-center gap-2 flex-1">
+                            {isExpanded ? (
+                              <ChevronDownIcon className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <ChevronRightIcon className="h-4 w-4 text-muted-foreground" />
+                            )}
+                            {isExpanded ? (
+                              <FolderOpenIcon className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <FolderIcon className="h-4 w-4 text-muted-foreground" />
+                            )}
+                            <span className="font-medium flex-1 text-left">{folder || "Other"}</span>
+                            <Badge variant="outline" className="text-xs">
+                              {files.length} {files.length === 1 ? "file" : "files"}
+                            </Badge>
+                          </CollapsibleTrigger>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2 text-muted-foreground hover:text-destructive"
+                                disabled={deletingFolder === folder}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <TrashIcon className="h-4 w-4 mr-1" />
+                                <span className="text-xs">Delete All</span>
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete Entire Folder</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to delete all {files.length} resources in "{folder}"? This action will permanently delete all files and their associated embeddings. This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => deleteFolder(folder)}
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                >
+                                  {deletingFolder === folder ? "Deleting..." : `Delete ${files.length} files`}
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
                         <CollapsibleContent>
                           <div className="space-y-2 mt-2">
                             {files.map(renderResource)}
@@ -420,6 +480,38 @@ export default function EmbeddingsPage() {
                     );
                   })}
               </div>
+
+              {/* Folder Pagination */}
+              {groupedData.totalPages > 1 && (
+                <div className="flex items-center justify-between pt-4 border-t mt-4">
+                  <div className="text-sm text-muted-foreground">
+                    Showing folders {((groupedData.currentPage - 1) * 10) + 1} to {Math.min(groupedData.currentPage * 10, groupedData.totalFolders)} of {groupedData.totalFolders}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fetchResources(currentPage - 1, searchQuery)}
+                      disabled={!groupedData.hasPrevPage || isRefreshing}
+                    >
+                      <ChevronLeftIcon className="h-4 w-4" />
+                      Previous
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      Page {groupedData.currentPage} of {groupedData.totalPages}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fetchResources(currentPage + 1, searchQuery)}
+                      disabled={!groupedData.hasNextPage || isRefreshing}
+                    >
+                      Next
+                      <ChevronRightIcon className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </>
           ) : null}
         </CardContent>

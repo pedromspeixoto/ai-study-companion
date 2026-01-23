@@ -286,15 +286,52 @@ export async function saveChat({
   /**
    * Get messages by chat id
    * @param id - The id of the chat
+   * @param limit - Optional limit of messages to retrieve (default: all)
+   * @param before - Optional message ID to get messages before (for pagination)
    * @returns The messages
    */
-  export async function getMessagesByChatId({ id }: { id: string }) {
+  export async function getMessagesByChatId({
+    id,
+    limit,
+    before,
+  }: {
+    id: string;
+    limit?: number;
+    before?: string;
+  }) {
     try {
-      return await db
+      let query = db
         .select()
         .from(message)
         .where(eq(message.chatId, id))
-        .orderBy(asc(message.createdAt));
+        .orderBy(desc(message.createdAt));
+
+      if (before) {
+        const [beforeMessage] = await db
+          .select()
+          .from(message)
+          .where(eq(message.id, before))
+          .limit(1);
+
+        if (beforeMessage) {
+          query = db
+            .select()
+            .from(message)
+            .where(
+              and(eq(message.chatId, id), lt(message.createdAt, beforeMessage.createdAt))
+            )
+            .orderBy(desc(message.createdAt));
+        }
+      }
+
+      if (limit) {
+        query = query.limit(limit) as any;
+      }
+
+      const messages = await query;
+
+      // Reverse to get chronological order (oldest first)
+      return messages.reverse();
     } catch (_error) {
       throw new ChatSDKError(
         "bad_request:database",

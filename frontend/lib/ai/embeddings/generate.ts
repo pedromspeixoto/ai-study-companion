@@ -1,9 +1,17 @@
-import { embed } from 'ai';
-import { openai } from '@ai-sdk/openai';
+import { embed } from "ai";
+import { openai } from "@ai-sdk/openai";
 
-// IMPORTANT: This must match the model used in the Dagster pipeline
-// Dagster uses: text-embedding-3-small
-const embeddingModel = openai.embedding('text-embedding-3-small');
+/**
+ * Embedding model configuration.
+ *
+ * IMPORTANT: This MUST use OpenAI and match the model used in the Dagster data pipeline.
+ * The Dagster pipeline generates embeddings with text-embedding-3-small, so queries
+ * must use the same model to ensure vector compatibility.
+ *
+ * DO NOT change this to use Anthropic or any other provider - embeddings must be
+ * consistent between the data pipeline and query generation.
+ */
+const embeddingModel = openai.embedding("text-embedding-3-small");
 
 /**
  * Generate a single embedding from input text (for query/search purposes)

@@ -34,6 +34,7 @@ async function ChatPageContent({ id }: { id: string }) {
 
   const messagesFromDb = await getMessagesByChatId({
     id,
+    limit: 50, // Load only the last 50 messages initially
   });
 
   const uiMessages = convertToUIMessages(messagesFromDb);

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/app/(auth)/auth";
 import { deleteFile } from "@/lib/storage";
 import { findResourceById, deleteResourceById, getResourcesPaginated, getResourcesGroupedByFolder } from "@/lib/db/resources/queries";
-import { deleteEmbeddingsByResourceId } from "@/lib/db/embeddings/queries";
+import { deleteEmbeddingsByResourceId, deleteResourcesByFolder } from "@/lib/db/embeddings/queries";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -17,9 +17,16 @@ export async function GET(request: Request) {
     const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 50); // Max 50
     const search = searchParams.get("search") || "";
     const grouped = searchParams.get("grouped") === "true";
+    const foldersPerPage = Math.min(parseInt(searchParams.get("foldersPerPage") || "10"), 20); // Max 20 folders per page
+    const filesPerFolder = Math.min(parseInt(searchParams.get("filesPerFolder") || "100"), 100); // Max 100 files per folder
 
     if (grouped) {
-      const result = await getResourcesGroupedByFolder({ search });
+      const result = await getResourcesGroupedByFolder({
+        search,
+        folderPage: page,
+        foldersPerPage,
+        filesPerFolder,
+      });
       return NextResponse.json(result, { status: 200 });
     } else {
       const result = await getResourcesPaginated({ page, limit, search });
@@ -44,9 +51,23 @@ export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const resourceId = searchParams.get("id");
+    const folder = searchParams.get("folder");
 
+    // Delete by folder (all resources in the folder)
+    if (folder) {
+      console.log(`Deleting all resources in folder: ${folder}`);
+      const result = await deleteResourcesByFolder(folder);
+      console.log(`Deleted ${result.resourceCount} resources from folder: ${folder}`);
+      return NextResponse.json({
+        success: true,
+        deletedCount: result.resourceCount,
+        folder
+      }, { status: 200 });
+    }
+
+    // Delete single resource by ID
     if (!resourceId) {
-      return NextResponse.json({ error: "Resource ID is required" }, { status: 400 });
+      return NextResponse.json({ error: "Resource ID or folder is required" }, { status: 400 });
     }
 
     // Get the resource to find the file path

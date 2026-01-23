@@ -1,6 +1,7 @@
 import type { InferUITool, UIMessage } from "ai";
 import { z } from "zod";
-import type { getWeather } from "@/lib/ai/agents/tools/get-weather";
+import type { getInformationFromEmbeddings } from "@/lib/ai/agents/tools/get-information-from-embeddings";
+import type { getAllResources } from "@/lib/ai/agents/tools/get-all-resources";
 import type { AppUsage } from "@/lib/usage";
 
 export type DataPart = { type: "append-message"; message: string };
@@ -11,10 +12,12 @@ export const messageMetadataSchema = z.object({
 
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
 
-type weatherTool = InferUITool<typeof getWeather>;
+type EmbeddingsTool = InferUITool<typeof getInformationFromEmbeddings>;
+type ResourcesTool = InferUITool<typeof getAllResources>;
 
 export type ChatTools = {
-  getWeather: weatherTool;
+  getInformationFromEmbeddings: EmbeddingsTool;
+  getAllResources: ResourcesTool;
 };
 
 export type CustomUIDataTypes = {

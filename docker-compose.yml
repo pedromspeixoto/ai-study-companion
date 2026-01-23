@@ -1,6 +1,7 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
+    container_name: study-companion-postgres
     environment:
       POSTGRES_DB: ai_rag
       POSTGRES_USER: ai_rag
@@ -16,9 +17,11 @@ services:
       - postgres-data:/var/lib/postgresql/data
     networks:
       - ai-stack
+    restart: unless-stopped
 
   redis:
     image: redis:7.4-alpine
+    container_name: study-companion-redis
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
     ports:
       - "6379:6379"
@@ -31,9 +34,11 @@ services:
       - redis-data:/data
     networks:
       - ai-stack
+    restart: unless-stopped
 
   pgweb:
     image: sosedoff/pgweb:latest
+    container_name: study-companion-pgweb
     ports:
       - "8081:8081"
     environment:
@@ -43,10 +48,76 @@ services:
         condition: service_healthy
     networks:
       - ai-stack
+    restart: unless-stopped
+
+  dagster:
+    build:
+      context: ./data
+      dockerfile: Dockerfile
+    container_name: study-companion-dagster
+    ports:
+      - "3001:3000"
+    volumes:
+      # Mount features directory so PDFs are accessible
+      - ./data/features:/app/features:ro
+      # Mount source code for development (optional, can be removed for production)
+      - ./data/src:/app/src:ro
+      # Mount workspace.yaml for Dagster configuration
+      - ./data/workspace.yaml:/app/workspace.yaml:ro
+      # Persist Dagster home directory
+      - dagster-home:/app/.dagster_home
+    environment:
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=ai_rag
+      - POSTGRES_USER=ai_rag
+      - POSTGRES_PASSWORD=ai_rag
+      - DAGSTER_HOME=/app/.dagster_home
+      - PYTHONPATH=/app/src
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ai-stack
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: study-companion-frontend
+    ports:
+      - "1337:3000"
+    environment:
+      - AUTH_SECRET=${AUTH_SECRET:-change-me}
+      - AUTH_URL=http://localhost:1337
+      - AUTH_TRUST_HOST=true
+      - POSTGRES_URL=postgres://ai_rag:ai_rag@postgres:5432/ai_rag
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - TITLE_PROVIDER=${TITLE_PROVIDER:-openai}
+      - REDIS_URL=redis://redis:6379
+      - NODE_ENV=production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ai-stack
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   postgres-data:
   redis-data:
+  dagster-home:
 
 networks:
   ai-stack:

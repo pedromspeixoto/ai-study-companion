@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import { isDevelopmentEnvironment } from "@/lib/constants";
+
+// Use AUTH_URL for the public-facing URL, fallback to request URL
+const getBaseUrl = () => process.env.AUTH_URL || "http://localhost:1337";
 
 export default async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -38,7 +40,7 @@ export default async function proxy(request: NextRequest) {
   const token = await getToken({
     req: request,
     secret: process.env.AUTH_SECRET,
-    secureCookie: !isDevelopmentEnvironment,
+    secureCookie: false, // Allow HTTP for local development
   });
 
   if (!token) {
@@ -47,15 +49,17 @@ export default async function proxy(request: NextRequest) {
       return NextResponse.next();
     }
 
-    const callbackUrl = encodeURIComponent(request.url);
+    // Use the configured base URL for the callback
+    const baseUrl = getBaseUrl();
+    const callbackUrl = encodeURIComponent(`${baseUrl}${pathname}`);
 
     return NextResponse.redirect(
-      new URL(`/login?callbackUrl=${callbackUrl}`, request.url)
+      new URL(`/login?callbackUrl=${callbackUrl}`, baseUrl)
     );
   }
 
   if (token && ["/login", "/register"].includes(pathname)) {
-    return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.redirect(new URL("/", getBaseUrl()));
   }
 
   // Create response and add cache headers

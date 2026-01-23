@@ -98,13 +98,27 @@ export async function getResourcesPaginated({
 }
 
 /**
- * Get resources grouped by folder
+ * Get resources grouped by folder with pagination
  */
 export async function getResourcesGroupedByFolder({
   search = "",
+  folderPage = 1,
+  foldersPerPage = 10,
+  filesPerFolder = 50,
 }: {
   search?: string;
-} = {}): Promise<Record<string, typeof resources.$inferSelect[]>> {
+  folderPage?: number;
+  foldersPerPage?: number;
+  filesPerFolder?: number;
+} = {}): Promise<{
+  folders: Record<string, typeof resources.$inferSelect[]>;
+  totalFolders: number;
+  totalResources: number;
+  currentPage: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}> {
   try {
     const searchCondition = search
       ? or(
@@ -112,30 +126,72 @@ export async function getResourcesGroupedByFolder({
           ilike(resources.folder, `%${search}%`)
         )
       : undefined;
-    
+
+    // Get all resources to group them
     const query = db
       .select()
       .from(resources)
       .orderBy(asc(resources.folder), asc(resources.filename));
-    
+
     if (searchCondition) {
       query.where(searchCondition);
     }
-    
+
     const rows = await query;
-    
+
     // Group by folder
-    const grouped: Record<string, typeof resources.$inferSelect[]> = {};
+    const allGrouped: Record<string, typeof resources.$inferSelect[]> = {};
     for (const resource of rows) {
       const folder = resource.folder || "Other";
-      if (!grouped[folder]) {
-        grouped[folder] = [];
+      if (!allGrouped[folder]) {
+        allGrouped[folder] = [];
       }
-      grouped[folder].push(resource);
+      allGrouped[folder].push(resource);
     }
-    
-    return grouped;
+
+    // Get sorted folder names
+    const allFolderNames = Object.keys(allGrouped).sort();
+    const totalFolders = allFolderNames.length;
+    const totalPages = Math.ceil(totalFolders / foldersPerPage);
+
+    // Paginate folders
+    const startIdx = (folderPage - 1) * foldersPerPage;
+    const endIdx = startIdx + foldersPerPage;
+    const paginatedFolderNames = allFolderNames.slice(startIdx, endIdx);
+
+    // Build paginated result with file limits
+    const folders: Record<string, typeof resources.$inferSelect[]> = {};
+    for (const folderName of paginatedFolderNames) {
+      // Limit files per folder if specified
+      folders[folderName] = allGrouped[folderName].slice(0, filesPerFolder);
+    }
+
+    return {
+      folders,
+      totalFolders,
+      totalResources: rows.length,
+      currentPage: folderPage,
+      totalPages,
+      hasNextPage: folderPage < totalPages,
+      hasPrevPage: folderPage > 1,
+    };
   } catch (_error) {
     throw new ChatSDKError("bad_request:database", "Failed to query resources");
+  }
+}
+
+/**
+ * Get all unique folder names
+ */
+export async function getAllFolders(): Promise<string[]> {
+  try {
+    const result = await db
+      .selectDistinct({ folder: resources.folder })
+      .from(resources)
+      .orderBy(asc(resources.folder));
+
+    return result.map(r => r.folder || "Other");
+  } catch (_error) {
+    throw new ChatSDKError("bad_request:database", "Failed to query folders");
   }
 }

@@ -5,106 +5,111 @@ import {
   ToolLoopAgent,
   type LanguageModelUsage,
 } from "ai";
-import type { Session } from "next-auth";
-import type { UIMessageStreamWriter } from "ai";
-import type { ChatMessage } from "@/lib/types";
 import { isProductionEnvironment } from "@/lib/constants";
 import { myProvider } from "@/lib/ai/providers";
 import { getInformationFromEmbeddings } from "@/lib/ai/agents/tools/get-information-from-embeddings";
 import { getAllResources } from "@/lib/ai/agents/tools/get-all-resources";
-import { getWeather } from "@/lib/ai/agents/tools/get-weather";
+import type { ChatModel } from "@/lib/ai/models";
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export type RequestHints = {
-  latitude?: number | null;
-  longitude?: number | null;
-  city?: string | null;
-  country?: string | null;
-};
-
 type CreateAgentOptions = {
-  requestHints?: RequestHints;
-  session: Session;
-  dataStream: UIMessageStreamWriter<ChatMessage>;
+  modelId: ChatModel["id"];
   onFinish?: (usage: LanguageModelUsage) => Promise<void> | void;
 };
 
-function getRequestPromptFromHints(requestHints: RequestHints): string {
-  const { latitude, longitude, city, country } = requestHints;
+// ============================================================================
+// RAG Agent Instructions
+// ============================================================================
 
-  if (
-    latitude == null &&
-    longitude == null &&
-    (!city || city.length === 0) &&
-    (!country || country.length === 0)
-  ) {
-    return "";
-  }
+const RAG_INSTRUCTIONS = `You are a helpful study companion that answers questions exclusively using information from the user's uploaded documents.
 
-  const details = [
-    latitude != null ? `- lat: ${latitude}` : null,
-    longitude != null ? `- lon: ${longitude}` : null,
-    city ? `- city: ${city}` : null,
-    country ? `- country: ${country}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
+=== Your Capabilities ===
+You can search through uploaded documents using semantic similarity to find relevant information. You have two tools:
+1. getAllResources - Lists all uploaded documents
+2. getInformationFromEmbeddings - Searches document content by semantic similarity
 
-  return `About the origin of user's request:\n${details}`;
-}
+=== Response Strategy ===
+
+First, classify the user's intent:
+
+A. Greetings or casual conversation (hi, hello, thanks, goodbye)
+   → Respond naturally and offer to help with their documents
+   Example: "Hello! I can help you find information in your uploaded study materials. What would you like to know?"
+
+B. Questions about what documents are available
+   → Use getAllResources tool and present the list clearly
+   Example phrases: "what files do I have?", "show my documents", "what's uploaded?"
+
+C. Questions about document content (most common)
+   → Use getInformationFromEmbeddings tool first, then answer based on results
+
+=== Answering Content Questions ===
+
+Step 1: Search the documents
+- Always call getInformationFromEmbeddings before answering content questions
+- Use the user's question as the search query
+- Optionally specify resourceId if they mention a specific document
+
+Step 2: Evaluate the results
+- If results are found (non-empty array):
+  * Read through all returned chunks carefully
+  * Synthesize a comprehensive answer using the retrieved information
+  * Cite sources naturally (e.g., "According to your biology_notes.pdf...")
+  * Stay faithful to the content - don't add external knowledge
+  * If chunks contain contradictory info, note the different perspectives
+
+- If no results found (empty array):
+  * Inform the user clearly: "I couldn't find information about [topic] in your uploaded documents."
+  * Suggest next steps: "This might be because the relevant document hasn't been uploaded yet, or the information might be phrased differently. Would you like me to search for related terms, or would you like to see what documents you currently have?"
+
+=== Critical Rules ===
+- Never use general knowledge or external information for content questions
+- Never fabricate or speculate beyond what's in the retrieved documents
+- If retrieved content is unclear or incomplete, acknowledge this honestly
+- Always cite which document(s) your answer comes from
+- Be conversational and helpful while staying grounded in the documents
+
+=== Examples ===
+
+User: "Hi there!"
+You: "Hello! I'm here to help you study using your uploaded documents. What would you like to know?"
+
+User: "What documents do I have?"
+You: [Use getAllResources tool] → Present list of documents with filenames and upload dates
+
+User: "What is mitochondria according to my biology notes?"
+You: [Use getInformationFromEmbeddings with query "mitochondria"]
+→ If results found: "According to your biology_notes.pdf, mitochondria are..."
+→ If no results: "I couldn't find information about mitochondria in your uploaded documents. Would you like to check if you've uploaded your biology notes?"
+
+User: "Explain quantum mechanics"
+You: [Use getInformationFromEmbeddings with query "quantum mechanics"]
+→ If results found: Answer based on the documents
+→ If no results: "I don't have information about quantum mechanics in your uploaded documents. If you have course materials on this topic, feel free to upload them and I can help you study!"`;
 
 // ============================================================================
-// Agent Creation Functions
+// Agent Creation
 // ============================================================================
 
 /**
  * Creates a RAG agent that only answers questions using information from uploaded documents.
+ * The agent can use any of the configured models (OpenAI or Anthropic).
  */
-export function createRagAgent({
-  requestHints,
-  session,
-  dataStream,
+export function createAgent({
+  modelId,
   onFinish,
 }: CreateAgentOptions) {
-  const instructions = [
-    `You are a document-based assistant that ONLY answers questions using information from uploaded documents.
-
-STRICT RULES:
-1. When users ask about what documents are available, what information you have access to, or what files have been uploaded, use the getAllResources tool to list all available documents.
-2. For all other questions, you MUST use the getInformationFromEmbeddings tool to search for information before answering ANY question.
-3. You can ONLY provide information that is found in the retrieved embeddings from uploaded documents.
-4. NEVER provide general explanations, general knowledge, or information not found in the documents.
-5. NEVER say "I can help with general explanations" or offer to provide information outside the documents.
-6. If the information is NOT found in the documents, you MUST respond with ONLY: "I don't have information about this topic in the uploaded documents."
-7. Do NOT offer alternatives, general knowledge, or explanations outside the documents.
-8. Do NOT apologize or provide lengthy explanations when information is not found - simply state it's not available.
-
-When answering:
-- For questions about available documents: Use getAllResources tool and list the documents with their filenames and status.
-- For content questions: 
-  1. ALWAYS call getInformationFromEmbeddings tool first
-  2. If the tool returns results (non-empty array), you MUST use that content to answer the question
-  3. Synthesize information from all returned results to provide a comprehensive answer
-  4. Cite the source documents when referencing specific information
-  5. Only if the tool returns an empty array should you respond with: "I don't have information about this topic in the uploaded documents."
-- Base your response ONLY on the content retrieved from the getInformationFromEmbeddings tool.
-- If the tool returns results, you MUST use them - do not say information is unavailable when results are returned.`,
-    requestHints ? getRequestPromptFromHints(requestHints) : null,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
   return new ToolLoopAgent({
-    model: myProvider.languageModel("rag-model"),
-    instructions,
+    model: myProvider.languageModel(modelId),
+    instructions: RAG_INSTRUCTIONS,
     tools: {
       getInformationFromEmbeddings,
       getAllResources,
     },
-    stopWhen: stepCountIs(5),
+    stopWhen: stepCountIs(10),
     experimental_telemetry: {
       isEnabled: isProductionEnvironment,
       functionId: "stream-text",
@@ -115,98 +120,4 @@ When answering:
         }
       : undefined,
   });
-}
-
-/**
- * Creates a general-purpose chat agent with all tools enabled.
- */
-export function createChatAgent({
-  requestHints,
-  session,
-  dataStream,
-  onFinish,
-}: CreateAgentOptions) {
-  const instructions = [
-    "You are a friendly assistant! Keep your responses concise and helpful.",
-    requestHints ? getRequestPromptFromHints(requestHints) : null,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
-  return new ToolLoopAgent({
-    model: myProvider.languageModel("chat-model"),
-    instructions,
-    tools: {
-      getWeather,
-    },
-    stopWhen: stepCountIs(5),
-    experimental_telemetry: {
-      isEnabled: isProductionEnvironment,
-      functionId: "stream-text",
-    },
-    onFinish: onFinish
-      ? async ({ usage }: { usage: LanguageModelUsage }) => {
-          await onFinish(usage);
-        }
-      : undefined,
-  });
-}
-
-/**
- * Creates a reasoning agent with enhanced reasoning capabilities and no tools.
- */
-export function createReasoningAgent({
-  requestHints,
-  session,
-  dataStream,
-  onFinish,
-}: CreateAgentOptions) {
-  const instructions = [
-    "You are a friendly assistant! Keep your responses concise and helpful.",
-    requestHints ? getRequestPromptFromHints(requestHints) : null,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
-
-  return new ToolLoopAgent({
-    model: myProvider.languageModel("chat-model-reasoning"),
-    instructions,
-    tools: {},
-    stopWhen: stepCountIs(5),
-    experimental_telemetry: {
-      isEnabled: isProductionEnvironment,
-      functionId: "stream-text",
-    },
-    onFinish: onFinish
-      ? async ({ usage }: { usage: LanguageModelUsage }) => {
-          await onFinish(usage);
-        }
-      : undefined,
-  });
-}
-
-// ============================================================================
-// Agent Factory (for backward compatibility / convenience)
-// ============================================================================
-
-/**
- * Creates an agent based on the model ID. This is a convenience function
- * that routes to the specific agent creation function.
- */
-export function createAgent(
-  modelId: "rag-model" | "chat-model" | "chat-model-reasoning",
-  options: CreateAgentOptions
-) {
-  switch (modelId) {
-    case "rag-model":
-      return createRagAgent(options);
-    case "chat-model":
-      return createChatAgent(options);
-    case "chat-model-reasoning":
-      return createReasoningAgent(options);
-    default:
-      // TypeScript exhaustiveness check
-      const _exhaustive: never = modelId;
-      throw new Error(`Unknown model ID: ${modelId}`);
-  }
 }

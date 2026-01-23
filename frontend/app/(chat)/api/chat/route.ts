@@ -16,11 +16,8 @@ import { auth, type UserType } from "@/app/(auth)/auth";
 import type { VisibilityType } from "@/components/visibility-selector";
 import { entitlementsByUserType } from "@/lib/ai/entitlements";
 import { type ChatModel } from "@/lib/ai/models";
-import {
-  type RequestHints,
-  createAgent,
-} from "@/lib/ai/agents";
-import { myProvider } from "@/lib/ai/providers";
+import { createAgent } from "@/lib/ai/agents";
+import { myProvider, getActualModelId } from "@/lib/ai/providers";
 import {
   getMessageCountByUserId,
   getUserById,
@@ -60,7 +57,7 @@ let isInitializing = false;
  * @returns The tokenlens catalog
  */
 const getTokenlensCatalog = cache(
-  async (): Promise<Awaited<ReturnType<typeof fetchModels>> | undefined> => {
+  async () => {
     try {
       return await fetchModels();
     } catch (err) {
@@ -68,7 +65,7 @@ const getTokenlensCatalog = cache(
         "TokenLens: catalog fetch failed, using default catalog",
         err
       );
-      return; // tokenlens helpers will fall back to defaultCatalog
+      return undefined;
     }
   },
   ["tokenlens-catalog"],
@@ -243,10 +240,7 @@ export async function POST(request: Request) {
     const messagesFromDb = await getMessagesByChatId({ id });
     const uiMessages = [...convertToUIMessages(messagesFromDb), message];
 
-    const requestHints: RequestHints | undefined = undefined;
-
     // Save the messages to the database
-    // Extend requestHints with geolocation or tenant-specific context if available.
     console.log("[POST /api/chat] Saving user message:", {
       chatId: id,
       messageId: message.id,
@@ -286,28 +280,16 @@ export async function POST(request: Request) {
     // Create a stream
     const stream = createUIMessageStream({
       execute: async ({ writer: dataStream }) => {
-        const agent = createAgent(
-          selectedChatModel as "rag-model" | "chat-model" | "chat-model-reasoning",
-          {
-          requestHints,
-          session,
-          dataStream,
+        const agent = createAgent({
+          modelId: selectedChatModel,
           onFinish: async (usage) => {
             try {
               const providers = await getTokenlensCatalog();
-              const modelId =
-                myProvider.languageModel(selectedChatModel).modelId;
-              if (!modelId) {
-                finalMergedUsage = usage;
-                dataStream.write({
-                  type: "data-usage",
-                  data: finalMergedUsage,
-                });
-                return;
-              }
+              // Map our custom model ID to the actual provider model ID for cost calculation
+              const actualModelId = getActualModelId(selectedChatModel);
 
               if (!providers) {
-                finalMergedUsage = usage;
+                finalMergedUsage = { ...usage, modelId: actualModelId };
                 dataStream.write({
                   type: "data-usage",
                   data: finalMergedUsage,
@@ -315,12 +297,13 @@ export async function POST(request: Request) {
                 return;
               }
 
-              const summary = getUsage({ modelId, usage, providers });
-              finalMergedUsage = { ...usage, ...summary, modelId } as AppUsage;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const summary = getUsage({ modelId: actualModelId, usage, providers: providers as any });
+              finalMergedUsage = { ...usage, ...summary, modelId: actualModelId } as AppUsage;
               dataStream.write({ type: "data-usage", data: finalMergedUsage });
             } catch (err) {
               console.warn("TokenLens enrichment failed", err);
-              finalMergedUsage = usage;
+              finalMergedUsage = { ...usage, modelId: getActualModelId(selectedChatModel) };
               dataStream.write({ type: "data-usage", data: finalMergedUsage });
             }
           },

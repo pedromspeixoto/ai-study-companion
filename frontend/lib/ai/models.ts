@@ -2,36 +2,53 @@
 // Model Definitions (Client-Safe)
 // ============================================================================
 
-export const DEFAULT_CHAT_MODEL = "chat-model";
+export const DEFAULT_CHAT_MODEL = "openai-gpt-4o";
 
 export type ChatModel = {
   id: string;
   name: string;
   description: string;
+  provider: "openai" | "anthropic";
 };
 
 export const chatModels: ChatModel[] = [
+  // OpenAI Models
   {
-    id: "rag-model",
-    name: "OpenAI GPT-4o (RAG)",
-    description:
-      "Retrieval-Augmented Generation model that uses embeddings to search for information. Uses GPT-4o (gpt-4o). Only answers based on uploaded documents.",
+    id: "openai-gpt-4o",
+    name: "GPT-4o",
+    description: "OpenAI's most capable model. Fast and intelligent with vision capabilities.",
+    provider: "openai",
   },
   {
-    id: "chat-model",
-    name: "OpenAI GPT-4",
-    description:
-      "General-purpose chat model with balanced quality and cost. Uses GPT-4 (gpt-4).",
+    id: "openai-gpt-4o-mini",
+    name: "GPT-4o Mini",
+    description: "OpenAI's efficient model. Great balance of speed and capability.",
+    provider: "openai",
   },
   {
-    id: "chat-model-reasoning",
-    name: "OpenAI GPT-4o",
-    description:
-      "Uses enhanced reasoning for complex multi-step questions. Uses GPT-4o (gpt-4o) with high reasoning effort.",
+    id: "openai-gpt-4-turbo",
+    name: "GPT-4 Turbo",
+    description: "OpenAI's GPT-4 Turbo with 128K context window.",
+    provider: "openai",
+  },
+  // Anthropic Models
+  {
+    id: "anthropic-claude-sonnet",
+    name: "Claude 3.5 Sonnet",
+    description: "Anthropic's balanced model. Excellent reasoning and writing.",
+    provider: "anthropic",
+  },
+  {
+    id: "anthropic-claude-haiku",
+    name: "Claude 3.5 Haiku",
+    description: "Anthropic's fast and efficient model. Great for quick tasks.",
+    provider: "anthropic",
+  },
+  {
+    id: "anthropic-claude-opus",
+    name: "Claude 3 Opus",
+    description: "Anthropic's most powerful model. Best for complex analysis.",
+    provider: "anthropic",
   },
 ];
 
-export type ToolName =
-  | "getWeather"
-  | "getInformationFromEmbeddings"
-  | "getAllResources";

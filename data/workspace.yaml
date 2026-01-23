@@ -1,0 +1,4 @@
+load_from:
+  - python_module:
+      module_name: study_companion.definitions
+      location_name: study_companion

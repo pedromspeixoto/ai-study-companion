@@ -3,7 +3,7 @@ import hashlib
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, List, TypedDict
+from typing import List, TypedDict
 
 from dagster import (
     AssetExecutionContext,

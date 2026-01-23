@@ -9,19 +9,11 @@ import { sanitizeText } from "@/lib/utils/messages";
 import { cn } from "@/lib/utils/generic";
 import { MessageContent } from "@/components/elements/message";
 import { Response } from "@/components/elements/response";
-import {
-  Tool,
-  ToolContent,
-  ToolHeader,
-  ToolInput,
-  ToolOutput,
-} from "@/components/elements/tool";
 import { SparklesIcon } from "@/components/icons";
 import { MessageActions } from "@/components/message-actions";
 import { MessageEditor } from "@/components/message-editor";
 import { MessageReasoning } from "@/components/message-reasoning";
 import { PreviewAttachment } from "@/components/preview-attachment";
-import { Weather } from "@/components/weather";
 
 const PurePreviewMessage = ({
   chatId,
@@ -161,26 +153,6 @@ const PurePreviewMessage = ({
               }
             }
 
-            if (type === "tool-getWeather") {
-              const { toolCallId, state } = part;
-
-              return (
-                <Tool defaultOpen={true} key={toolCallId}>
-                  <ToolHeader state={state} type="tool-getWeather" />
-                  <ToolContent>
-                    {state === "input-available" && (
-                      <ToolInput input={part.input} />
-                    )}
-                    {state === "output-available" && (
-                      <ToolOutput
-                        errorText={undefined}
-                        output={<Weather weatherAtLocation={part.output} />}
-                      />
-                    )}
-                  </ToolContent>
-                </Tool>
-              );
-            }
             return null;
           })}
 
