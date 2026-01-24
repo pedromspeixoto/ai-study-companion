@@ -12,7 +12,12 @@ const filePartSchema = z.object({
   url: z.string().url(),
 });
 
-const partSchema = z.union([textPartSchema, filePartSchema]);
+// User messages only contain text and file parts
+// AI SDK handles reasoning, tool-call, and tool-result parts internally
+const partSchema = z.union([
+  textPartSchema,
+  filePartSchema,
+]);
 
 export const postRequestBodySchema = z.object({
   id: z.string().uuid(),

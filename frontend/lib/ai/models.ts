@@ -32,7 +32,20 @@ export type ChatModel = {
 
 export function getChatModels(): ChatModel[] {
   const baseModels: ChatModel[] = [
-    // OpenAI Models
+    // OpenAI Reasoning Models
+    {
+      id: "openai-o3-mini",
+      name: "o3-mini",
+      description: "OpenAI's efficient reasoning model. Shows detailed thinking process.",
+      provider: "openai",
+    },
+    {
+      id: "openai-o1",
+      name: "o1",
+      description: "OpenAI's advanced reasoning model. Extended thinking for complex problems.",
+      provider: "openai",
+    },
+    // OpenAI General Models
     {
       id: "openai-gpt-4o",
       name: "GPT-4o",

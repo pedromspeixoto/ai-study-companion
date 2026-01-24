@@ -148,19 +148,25 @@ function PureMessages({
     }
   };
 
+  // Auto-scroll to bottom when message is submitted or streaming starts
   useEffect(() => {
-    if (status === "submitted") {
+    if (status === "submitted" || status === "streaming") {
+      // Use scrollToBottom from hook for consistent behavior
+      scrollToBottom("smooth");
+    }
+  }, [status, scrollToBottom]);
+
+  // Also scroll when messages array changes (new message added)
+  useEffect(() => {
+    if (status === "submitted" || status === "streaming") {
+      // Double requestAnimationFrame to ensure DOM has updated
       requestAnimationFrame(() => {
-        const container = messagesContainerRef.current;
-        if (container) {
-          container.scrollTo({
-            top: container.scrollHeight,
-            behavior: "smooth",
-          });
-        }
+        requestAnimationFrame(() => {
+          scrollToBottom("smooth");
+        });
       });
     }
-  }, [status, messagesContainerRef]);
+  }, [allMessages.length, status, scrollToBottom]);
 
   return (
     <div

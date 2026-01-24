@@ -51,7 +51,11 @@ const getOllamaProvider = () => {
  *    - Title generation always follows the Ollama preference when available
  *
  * Model ID mappings:
- * OpenAI:
+ * OpenAI Reasoning Models:
+ * - "openai-o3-mini" → o3-mini
+ * - "openai-o1" → o1
+ *
+ * OpenAI General Models:
  * - "openai-gpt-4o" → gpt-4o
  * - "openai-gpt-4o-mini" → gpt-4o-mini
  * - "openai-gpt-4-turbo" → gpt-4-turbo
@@ -88,7 +92,11 @@ const getOllamaTitleModel = () => {
 // - Anthropic models: Always available (will fail at runtime if ANTHROPIC_API_KEY not set)
 // - Ollama models: Always available (will fail at runtime if OLLAMA_BASE_URL not set)
 const baseLanguageModels: Record<string, any> = {
-  // OpenAI Models - ALWAYS available (requires OPENAI_API_KEY)
+  // OpenAI Reasoning Models - ALWAYS available (requires OPENAI_API_KEY)
+  "openai-o3-mini": openai("o3-mini"),
+  "openai-o1": openai("o1"),
+
+  // OpenAI General Models - ALWAYS available (requires OPENAI_API_KEY)
   "openai-gpt-4o": openai("gpt-4o"),
   "openai-gpt-4o-mini": openai("gpt-4o-mini"),
   "openai-gpt-4-turbo": openai("gpt-4-turbo"),
@@ -146,7 +154,10 @@ export function getTitleModelId(): string {
  * Used for cost calculation with tokenlens.
  */
 const MODEL_ID_MAP: Record<string, string> = {
-  // OpenAI
+  // OpenAI Reasoning Models
+  "openai-o3-mini": "o3-mini",
+  "openai-o1": "o1",
+  // OpenAI General Models
   "openai-gpt-4o": "gpt-4o",
   "openai-gpt-4o-mini": "gpt-4o-mini",
   "openai-gpt-4-turbo": "gpt-4-turbo",

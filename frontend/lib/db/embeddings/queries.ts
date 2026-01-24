@@ -14,14 +14,22 @@ const db = drizzle(client);
 /**
  * Minimum similarity threshold for embedding search results.
  * Lower values (e.g., 0.15) will return more results but may include less relevant content.
- * Higher values (e.g., 0.3) will return fewer but more relevant results.
+ * Higher values (e.g., 0.5) will return fewer but more relevant results.
+ *
  */
-const SIMILARITY_THRESHOLD = 0.3;
+const SIMILARITY_THRESHOLD = 0.5;
+
+/**
+ * Fallback thresholds for multi-hop search when no results are found
+ */
+const FALLBACK_THRESHOLDS = [0.3, 0.15];
 
 /**
  * Default number of results to return from similarity search.
+ *
+ * With 3 chunks at ~1000-5000 tokens each, this gives 3K-15K tokens per query instead of 30K+.
  */
-const DEFAULT_LIMIT = 6;
+const DEFAULT_LIMIT = 3;
 
 /**
  * The new embedding type
@@ -327,3 +335,86 @@ export async function getEmbeddingStats(): Promise<{
     throw new ChatSDKError("bad_request:database", "Failed to get embedding stats");
   }
 }
+
+/**
+ * Multi-hop search with fallback thresholds
+ * Progressively lowers the threshold if no results are found
+ *
+ * @param userQueryEmbedded - The user query embedding
+ * @param options - Search options
+ * @returns Array of similar content with metadata about search strategy used
+ */
+export const findRelevantContentWithFallback = async (
+  userQueryEmbedded: number[],
+  options: SimilaritySearchOptions = {}
+): Promise<{ results: SimilaritySearchResult[]; threshold: number; attempt: number }> => {
+  const { limit = DEFAULT_LIMIT, threshold = SIMILARITY_THRESHOLD } = options;
+
+  console.log("[findRelevantContentWithFallback] Starting multi-hop search");
+
+  // Try with the initial threshold
+  let results = await findRelevantContent(userQueryEmbedded, { limit, threshold });
+
+  if (results.length > 0) {
+    console.log(`[findRelevantContentWithFallback] Found ${results.length} results with threshold ${threshold}`);
+    return { results, threshold, attempt: 1 };
+  }
+
+  // Try fallback thresholds
+  for (let i = 0; i < FALLBACK_THRESHOLDS.length; i++) {
+    const fallbackThreshold = FALLBACK_THRESHOLDS[i];
+    console.log(`[findRelevantContentWithFallback] No results found. Trying fallback threshold ${fallbackThreshold} (attempt ${i + 2})`);
+
+    results = await findRelevantContent(userQueryEmbedded, { limit, threshold: fallbackThreshold });
+
+    if (results.length > 0) {
+      console.log(`[findRelevantContentWithFallback] Found ${results.length} results with fallback threshold ${fallbackThreshold}`);
+      return { results, threshold: fallbackThreshold, attempt: i + 2 };
+    }
+  }
+
+  console.warn("[findRelevantContentWithFallback] No results found even with lowest threshold");
+  return { results: [], threshold: FALLBACK_THRESHOLDS[FALLBACK_THRESHOLDS.length - 1], attempt: FALLBACK_THRESHOLDS.length + 1 };
+};
+
+/**
+ * Multi-hop search by resource ID with fallback thresholds
+ *
+ * @param userQueryEmbedded - The user query embedding
+ * @param resourceId - The resource ID to filter by
+ * @param options - Search options
+ * @returns Array of similar content with metadata about search strategy used
+ */
+export const findRelevantContentByResourceIdWithFallback = async (
+  userQueryEmbedded: number[],
+  resourceId: string,
+  options: SimilaritySearchOptions = {}
+): Promise<{ results: SimilaritySearchResult[]; threshold: number; attempt: number }> => {
+  const { limit = DEFAULT_LIMIT, threshold = SIMILARITY_THRESHOLD } = options;
+
+  console.log(`[findRelevantContentByResourceIdWithFallback] Starting multi-hop search for resource ${resourceId}`);
+
+  // Try with the initial threshold
+  let results = await findRelevantContentByResourceId(userQueryEmbedded, resourceId, { limit, threshold });
+
+  if (results.length > 0) {
+    console.log(`[findRelevantContentByResourceIdWithFallback] Found ${results.length} results with threshold ${threshold}`);
+    return { results, threshold, attempt: 1 };
+  }
+
+  // Try fallback thresholds
+  for (let i = 0; i < FALLBACK_THRESHOLDS.length; i++) {
+    const fallbackThreshold = FALLBACK_THRESHOLDS[i];
+    console.log(`[findRelevantContentByResourceIdWithFallback] No results found. Trying fallback threshold ${fallbackThreshold} (attempt ${i + 2})`);
+
+    results = await findRelevantContentByResourceId(userQueryEmbedded, resourceId, { limit, threshold: fallbackThreshold });
+
+    if (results.length > 0) {
+      console.log(`[findRelevantContentByResourceIdWithFallback] Found ${results.length} results with fallback threshold ${fallbackThreshold}`);
+      return { results, threshold: fallbackThreshold, attempt: i + 2 };
+    }
+  }
+
+  console.warn(`[findRelevantContentByResourceIdWithFallback] No results found for resource ${resourceId} even with lowest threshold`);
+  return { results: [], threshold: FALLBACK_THRESHOLDS[FALLBACK_THRESHOLDS.length - 1], attempt: FALLBACK_THRESHOLDS.length + 1 };
+};

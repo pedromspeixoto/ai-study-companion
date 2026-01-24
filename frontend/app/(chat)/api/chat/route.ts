@@ -35,6 +35,7 @@ import { ChatSDKError } from "@/lib/errors";
 import type { ChatMessage } from "@/lib/types";
 import type { AppUsage } from "@/lib/usage";
 import { convertToUIMessages, generateUUID } from "@/lib/utils/messages";
+import { condenseMessages, isApproachingLimit } from "@/lib/utils/context-manager";
 import { generateTitleFromUserMessage } from "@/app/(chat)/actions";
 import { type PostRequestBody, postRequestBodySchema } from "@/app/(chat)/api/chat/schema";
 
@@ -238,7 +239,25 @@ export async function POST(request: Request) {
 
     // Get the messages from the database
     const messagesFromDb = await getMessagesByChatId({ id });
-    const uiMessages = [...convertToUIMessages(messagesFromDb), message];
+    const allMessages = [...convertToUIMessages(messagesFromDb), message];
+
+    // Backend-driven compaction: Always condense if needed
+    const {
+      condensed: uiMessages,
+      wasCondensed,
+      originalCount,
+      condensedCount,
+      tokensSaved
+    } = condenseMessages(allMessages, 100000, 15);
+
+    if (wasCondensed) {
+      console.log(
+        `[POST /api/chat] Context condensed: ${originalCount} → ${condensedCount} messages, ` +
+        `saved ~${Math.round(tokensSaved / 1000)}K tokens`
+      );
+    }
+
+    const contextWarning = isApproachingLimit(uiMessages, 80000);
 
     // Save the messages to the database
     console.log("[POST /api/chat] Saving user message:", {
@@ -280,6 +299,28 @@ export async function POST(request: Request) {
     // Create a stream
     const stream = createUIMessageStream({
       execute: async ({ writer: dataStream }) => {
+        // Send context info to client if condensed or approaching limit
+        if (wasCondensed) {
+          dataStream.write({
+            type: "data-context",
+            data: {
+              wasCondensed: true,
+              originalCount,
+              condensedCount,
+              tokensSaved,
+              message: `Context optimized: Condensed ${originalCount - condensedCount} messages, saved ~${Math.round(tokensSaved / 1000)}K tokens.`,
+            },
+          });
+        } else if (contextWarning) {
+          dataStream.write({
+            type: "data-context",
+            data: {
+              isApproachingLimit: true,
+              message: "Context is getting large. Consider starting a new chat for better performance.",
+            },
+          });
+        }
+
         const agent = createAgent({
           modelId: selectedChatModel,
           onFinish: async (usage) => {

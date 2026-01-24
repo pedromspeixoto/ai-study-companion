@@ -23,6 +23,14 @@ export type ChatTools = {
 export type CustomUIDataTypes = {
   appendMessage: string;
   usage: AppUsage;
+  context: {
+    wasCondensed?: boolean;
+    originalCount?: number;
+    condensedCount?: number;
+    tokensSaved?: number;
+    isApproachingLimit?: boolean;
+    message?: string;
+  };
 };
 
 export type ChatMessage = UIMessage<

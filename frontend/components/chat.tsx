@@ -92,6 +92,21 @@ export function Chat({
       if (dataPart.type === "data-usage") {
         setUsage(dataPart.data);
       }
+      // Handle context notifications from backend
+      if (dataPart.type === "data-context") {
+        const contextData = dataPart.data as any;
+        if (contextData.wasCondensed) {
+          toast({
+            type: "info",
+            description: contextData.message || "Context has been optimized to manage the conversation window.",
+          });
+        } else if (contextData.isApproachingLimit) {
+          toast({
+            type: "warning",
+            description: contextData.message || "Context window is getting large. Consider starting a new chat.",
+          });
+        }
+      }
     },
     onFinish: () => {
       mutate(unstable_serialize(getChatHistoryPaginationKey));

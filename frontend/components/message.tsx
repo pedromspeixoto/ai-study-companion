@@ -204,9 +204,9 @@ export const ThinkingMessage = () => {
       className="group/message w-full"
       data-role={role}
       data-testid="message-assistant-loading"
-      exit={{ opacity: 0, transition: { duration: 0.5 } }}
-      initial={{ opacity: 0 }}
-      transition={{ duration: 0.2 }}
+      exit={{ opacity: 0, transition: { duration: 0.3 } }}
+      initial={{ opacity: 1 }}
+      transition={{ duration: 0 }}
     >
       <div className="flex items-start justify-start gap-3">
         <div className="-mt-1 flex size-8 shrink-0 items-center justify-center rounded-full bg-background ring-1 ring-border">
@@ -214,7 +214,12 @@ export const ThinkingMessage = () => {
         </div>
 
         <div className="flex w-full flex-col gap-2 md:gap-4">
-          <div className="p-0 text-muted-foreground text-sm">Thinking...</div>
+          <div className="p-0 text-muted-foreground text-sm">
+            <span className="inline-flex items-center gap-2">
+              <span className="animate-pulse">●</span>
+              Thinking...
+            </span>
+          </div>
         </div>
       </div>
     </motion.div>

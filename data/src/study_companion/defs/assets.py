@@ -48,9 +48,10 @@ class PDFProcessingConfig(Config):
     openai_model: str = "text-embedding-3-small"  # Used only if OpenAI is configured
     # Chunk sizes: nomic-embed-text has 8192 token limit, OpenAI has 8191 token limit
     # Using conservative estimates: ~4 chars per token, leaving buffer
-    chunk_size: int = 20000  # Characters per chunk for OpenAI (roughly 5000 tokens)
-    chunk_size_ollama: int = 5000  # Characters per chunk for Ollama/nomic-embed-text (roughly 1250 tokens, well under 8192 limit)
-    chunk_overlap: int = 500  # Overlap between chunks to preserve context
+    #
+    chunk_size: int = 4000  # Characters per chunk for OpenAI (roughly 1000 tokens)
+    chunk_size_ollama: int = 4000  # Characters per chunk for Ollama/nomic-embed-text (roughly 1000 tokens)
+    chunk_overlap: int = 200  # Overlap between chunks to preserve context
 
 
 class PDFInfo(TypedDict):
@@ -450,7 +451,7 @@ def generate_embeddings(
     # Determine which provider to use
     # Priority: Ollama if OLLAMA_BASE_URL is set, otherwise OpenAI if OPENAI_API_KEY is set
     # Check if OLLAMA_BASE_URL environment variable is actually set
-    ollama_base_url = EnvVar("OLLAMA_BASE_URL").get_value()
+    ollama_base_url = EnvVar("OLLAMA_BASE_URL").get_value(default="")
     use_ollama = bool(ollama_base_url and ollama_base_url.strip())
     use_openai = not use_ollama and openai_resource is not None
     

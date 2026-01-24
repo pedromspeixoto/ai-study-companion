@@ -231,6 +231,6 @@ def get_ollama_resource() -> OllamaResource:
     # Always use EnvVar - Dagster will resolve it at runtime
     # If not set, it will use the default value from the class definition
     return OllamaResource(
-        base_url=EnvVar("OLLAMA_BASE_URL"),  # type: ignore
+        base_url=EnvVar("OLLAMA_BASE_URL").get_value(default=""),
         embedding_model="nomic-embed-text",
     )
