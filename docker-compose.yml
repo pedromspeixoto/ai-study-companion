@@ -50,6 +50,50 @@ services:
       - ai-stack
     restart: unless-stopped
 
+  # Ollama service - COMMENTED OUT by default since I run on MacOS
+  # 
+  # For macOS: Run Ollama natively for Metal GPU acceleration (recommended)
+  #   Run: ./scripts/setup-ollama-macos.sh
+  #   Docker containers will connect via: http://host.docker.internal:11434
+  #
+  # For Linux with NVIDIA GPU: Uncomment this service and use Docker GPU support
+  #   Run: ./scripts/setup-docker-gpu.sh first to configure GPU support
+  #   Then uncomment the ollama service below and set OLLAMA_BASE_URL=http://ollama:11434
+  #
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #     - ./scripts/ollama-init.sh:/usr/local/bin/ollama-init.sh:ro
+  #   environment:
+  #     - OLLAMA_HOST=0.0.0.0
+  #     # CPU optimization: Set to cpu_avx2 (best), cpu_avx (moderate), or cpu (compatible)
+  #     # Leave unset to auto-detect, or set explicitly for CPU-only systems
+  #     - OLLAMA_LLM_LIBRARY=${OLLAMA_LLM_LIBRARY:-}
+  #   entrypoint: []
+  #   command: ["/bin/sh", "/usr/local/bin/ollama-init.sh"]
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 120s
+  #   networks:
+  #     - ai-stack
+  #   restart: unless-stopped
+  #   # GPU support - requires NVIDIA GPU and nvidia-container-toolkit installed
+  #   # Run: ./scripts/setup-docker-gpu.sh to configure
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+
   dagster:
     build:
       context: ./data
@@ -75,6 +119,8 @@ services:
       - DAGSTER_HOME=/app/.dagster_home
       - PYTHONPATH=/app/src
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # Ollama Configuration (optional - uncomment to use Ollama instead of OpenAI)
+      # - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,6 +143,10 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - TITLE_PROVIDER=${TITLE_PROVIDER:-openai}
+      # Ollama Configuration (optional - uncomment to use Ollama instead of OpenAI)
+      # - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      # - OLLAMA_CHAT_MODEL=${OLLAMA_CHAT_MODEL:-llama3.1:8b}
+      # - OLLAMA_TITLE_MODEL=${OLLAMA_TITLE_MODEL:-}
       - REDIS_URL=redis://redis:6379
       - NODE_ENV=production
     depends_on:
@@ -118,6 +168,7 @@ volumes:
   postgres-data:
   redis-data:
   dagster-home:
+  # ollama_data:  # Uncomment if using Ollama in Docker
 
 networks:
   ai-stack:

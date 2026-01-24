@@ -2340,6 +2340,7 @@ dependencies = [
     { name = "pgvector" },
     { name = "psycopg2-binary" },
     { name = "pypdf" },
+    { name = "requests" },
 ]
 
 [package.dev-dependencies]
@@ -2356,6 +2357,7 @@ requires-dist = [
     { name = "pgvector", specifier = ">=0.3.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.0" },
     { name = "pypdf", specifier = ">=5.0.0" },
+    { name = "requests", specifier = ">=2.31.0" },
 ]
 
 [package.metadata.requires-dev]

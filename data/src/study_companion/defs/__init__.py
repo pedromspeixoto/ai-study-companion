@@ -9,6 +9,7 @@ defs = Definitions(
     assets=all_assets,
     resources={
         "postgres": resources.get_postgres_resource(),
+        "ollama_resource": resources.get_ollama_resource(),
         "openai_resource": resources.get_openai_resource(),
     },
 )

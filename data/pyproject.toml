@@ -9,6 +9,7 @@ dependencies = [
     "pypdf>=5.0.0",
     "psycopg2-binary>=2.9.0",
     "pgvector>=0.3.0",
+    "requests>=2.31.0",
 ]
 
 [dependency-groups]

@@ -8,6 +8,7 @@ from typing import List, TypedDict
 from dagster import (
     AssetExecutionContext,
     Config,
+    EnvVar,
     StaticPartitionsDefinition,
     asset,
     MaterializeResult,
@@ -16,7 +17,7 @@ from dagster import (
 from dagster_openai import OpenAIResource
 from pypdf import PdfReader
 
-from study_companion.defs.resources import PostgresResource
+from study_companion.defs.resources import PostgresResource, OllamaResource
 
 # Get the project root and features directory
 _PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
@@ -44,8 +45,11 @@ folder_partitions_def = StaticPartitionsDefinition(feature_folders) if feature_f
 class PDFProcessingConfig(Config):
     """Configuration for PDF processing."""
 
-    openai_model: str = "text-embedding-3-small"
-    chunk_size: int = 20000  # Characters per chunk (roughly 5000 tokens, leaving buffer for 8192 limit)
+    openai_model: str = "text-embedding-3-small"  # Used only if OpenAI is configured
+    # Chunk sizes: nomic-embed-text has 8192 token limit, OpenAI has 8191 token limit
+    # Using conservative estimates: ~4 chars per token, leaving buffer
+    chunk_size: int = 20000  # Characters per chunk for OpenAI (roughly 5000 tokens)
+    chunk_size_ollama: int = 5000  # Characters per chunk for Ollama/nomic-embed-text (roughly 1250 tokens, well under 8192 limit)
     chunk_overlap: int = 500  # Overlap between chunks to preserve context
 
 
@@ -412,25 +416,29 @@ def save_resources(
 
 @asset(
     key=GENERATE_EMBEDDINGS_KEY,
-    description="Generate text embeddings using OpenAI's embedding models.",
+    description="Generate text embeddings using OpenAI or Ollama embedding models.",
     group_name="pdf_processing",
     partitions_def=folder_partitions_def,
     deps=[EXTRACT_PDF_TEXT_KEY],
-    kinds={"openai"},
+    kinds={"openai", "llama"},
 )
 def generate_embeddings(
     context: AssetExecutionContext,
     config: PDFProcessingConfig,
-    openai_resource: OpenAIResource,  # type: ignore
     extract_pdf_text: List[dict],
+    ollama_resource: OllamaResource,
+    openai_resource: OpenAIResource,
 ) -> List[dict]:
     """
-    Generate embeddings for each PDF's extracted text using OpenAI.
+    Generate embeddings for each PDF's extracted text using OpenAI or Ollama.
     
     Creates vector embeddings for successful text extractions.
     Large texts are automatically chunked to fit within token limits.
     Skips PDFs that failed text extraction.
-    Uses Dagster OpenAI integration for automatic metadata tracking.
+    
+    Automatically selects provider based on available resources:
+    - Uses Ollama if ollama_resource is provided
+    - Falls back to OpenAI if openai_resource is provided
     """
     embeddings_data: List[dict] = []
     
@@ -439,82 +447,105 @@ def generate_embeddings(
     failed_embeddings = 0
     total_chunks = 0
     
-    with openai_resource.get_client(context) as client:
-        for pdf_data in extract_pdf_text:
-            if not pdf_data.get("text") or pdf_data.get("error"):
-                context.log.warning(
-                    f"Skipping embedding generation for {pdf_data['filename']} "
-                    "due to extraction error"
-                )
-                skipped_embeddings += 1
-                continue
+    # Determine which provider to use
+    # Priority: Ollama if OLLAMA_BASE_URL is set, otherwise OpenAI if OPENAI_API_KEY is set
+    # Check if OLLAMA_BASE_URL environment variable is actually set
+    ollama_base_url = EnvVar("OLLAMA_BASE_URL").get_value()
+    use_ollama = bool(ollama_base_url and ollama_base_url.strip())
+    use_openai = not use_ollama and openai_resource is not None
+    
+    if use_ollama:
+        context.log.info(f"Using Ollama for embeddings: {ollama_resource.embedding_model}")
+    elif use_openai:
+        context.log.info(f"Using OpenAI for embeddings: {config.openai_model}")
+    else:
+        raise ValueError(
+            "Neither OpenAI nor Ollama resource is configured. "
+            "Set OPENAI_API_KEY or OLLAMA_BASE_URL environment variable."
+        )
+    
+    for pdf_data in extract_pdf_text:
+        if not pdf_data.get("text") or pdf_data.get("error"):
+            context.log.warning(
+                f"Skipping embedding generation for {pdf_data['filename']} "
+                "due to extraction error"
+            )
+            skipped_embeddings += 1
+            continue
+        
+        try:
+            text = pdf_data["text"]
+            text_length = len(text)
             
-            try:
-                text = pdf_data["text"]
-                text_length = len(text)
-                
-                # Chunk the text if it's too long
-                chunks = _chunk_text(text, config.chunk_size, config.chunk_overlap)
-                num_chunks = len(chunks)
-                
-                if num_chunks > 1:
-                    context.log.info(
-                        f"Chunking {pdf_data['filename']} into {num_chunks} chunks "
-                        f"(text length: {text_length} chars)"
-                    )
-                
-                # Generate embedding for each chunk
-                chunks_processed = 0
-                embedding_dim = 0
-                for chunk_idx, chunk in enumerate(chunks):
-                    try:
-                        context.log.debug(
-                            f"Generating embedding for chunk {chunk_idx + 1}/{num_chunks} "
-                            f"of {pdf_data['filename']} ({len(chunk)} chars)"
-                        )
-                        
-                        # Generate embedding using Dagster OpenAI integration
-                        response = client.embeddings.create(
-                            model=config.openai_model,
-                            input=chunk,
-                        )
-                        
-                        embedding_vector = response.data[0].embedding
-                        embedding_dim = len(embedding_vector)
-                        
-                        # Store chunk with metadata
-                        embedding_data: dict = {
-                            "resource_id": pdf_data["resource_id"],
-                            "content": chunk,
-                            "embedding": embedding_vector,
-                            "chunk_index": chunk_idx if num_chunks > 1 else None,
-                            "total_chunks": num_chunks if num_chunks > 1 else None,
-                        }
-                        embeddings_data.append(embedding_data)
-                        total_chunks += 1
-                        chunks_processed += 1
-                        
-                    except Exception as chunk_error:
-                        context.log.error(
-                            f"Error generating embedding for chunk {chunk_idx + 1}/{num_chunks} "
-                            f"of {pdf_data['filename']}: {str(chunk_error)}"
-                        )
-                        failed_embeddings += 1
-                        # Continue with next chunk even if one fails
-                        continue
-                
-                if chunks_processed > 0:
-                    successful_embeddings += 1
-                    context.log.info(
-                        f"Generated {chunks_processed}/{num_chunks} embedding(s) (dim={embedding_dim}) "
-                        f"for {pdf_data['filename']}"
-                    )
-                
-            except Exception as e:
-                failed_embeddings += 1
-                context.log.error(
-                    f"Error processing {pdf_data['filename']}: {str(e)}"
+            # Use provider-specific chunk size
+            chunk_size = config.chunk_size_ollama if use_ollama else config.chunk_size
+            
+            # Chunk the text if it's too long
+            chunks = _chunk_text(text, chunk_size, config.chunk_overlap)
+            num_chunks = len(chunks)
+            
+            if num_chunks > 1:
+                context.log.info(
+                    f"Chunking {pdf_data['filename']} into {num_chunks} chunks "
+                    f"(text length: {text_length} chars, chunk size: {chunk_size} chars)"
                 )
+            
+            # Generate embedding for each chunk
+            chunks_processed = 0
+            embedding_dim = 0
+            for chunk_idx, chunk in enumerate(chunks):
+                try:
+                    context.log.debug(
+                        f"Generating embedding for chunk {chunk_idx + 1}/{num_chunks} "
+                        f"of {pdf_data['filename']} ({len(chunk)} chars)"
+                    )
+                    
+                    # Generate embedding using selected provider
+                    if use_ollama:
+                        embedding_vector = ollama_resource.get_embedding(chunk)
+                    else:
+                        with openai_resource.get_client(context) as client:  # type: ignore
+                            response = client.embeddings.create(
+                                model=config.openai_model,
+                                input=chunk,
+                            )
+                            embedding_vector = response.data[0].embedding
+                    
+                    embedding_dim = len(embedding_vector)
+                    
+                    # Store chunk with metadata
+                    embedding_data: dict = {
+                        "resource_id": pdf_data["resource_id"],
+                        "content": chunk,
+                        "embedding": embedding_vector,
+                        "chunk_index": chunk_idx if num_chunks > 1 else None,
+                        "total_chunks": num_chunks if num_chunks > 1 else None,
+                    }
+                    embeddings_data.append(embedding_data)
+                    total_chunks += 1
+                    chunks_processed += 1
+                    
+                except Exception as chunk_error:
+                    context.log.error(
+                        f"Error generating embedding for chunk {chunk_idx + 1}/{num_chunks} "
+                        f"of {pdf_data['filename']}: {str(chunk_error)}"
+                    )
+                    failed_embeddings += 1
+                    # Continue with next chunk even if one fails
+                    continue
+            
+            if chunks_processed > 0:
+                successful_embeddings += 1
+                context.log.info(
+                    f"Generated {chunks_processed}/{num_chunks} embedding(s) (dim={embedding_dim}) "
+                    f"for {pdf_data['filename']}"
+                )
+            
+        except Exception as e:
+            failed_embeddings += 1
+            context.log.error(
+                f"Error processing {pdf_data['filename']}: {str(e)}"
+            )
     
     # Add metadata about embedding generation results
     embedding_dimension = len(embeddings_data[0]["embedding"]) if embeddings_data else 0
@@ -526,10 +557,10 @@ def generate_embeddings(
             "skipped_embeddings": MetadataValue.int(skipped_embeddings),
             "failed_embeddings": MetadataValue.int(failed_embeddings),
             "embedding_dimension": MetadataValue.int(embedding_dimension),
+            "provider": MetadataValue.text("ollama" if use_ollama else "openai"),
         }
     )
     
-    # OpenAI usage metadata is automatically tracked by dagster-openai
     return embeddings_data
 
 
